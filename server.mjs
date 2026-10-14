@@ -21,7 +21,7 @@ const server=http.createServer(async(req,res)=>{
       if(!message)return json(res,400,{error:'پیام خالی است.'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
       const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(24000)});
-      const payload=await r.json().catch(()=>({}));if(!r.ok){
+      const rawUpstream=await r.text();let payload;try{payload=JSON.parse(rawUpstream)}catch{console.error('[Gemini invalid JSON]',JSON.stringify({httpStatus:r.status,contentType:r.headers.get('content-type'),bodyPreview:rawUpstream.slice(0,130)}));return json(res,502,{error:'سرویس Gemini پاسخ غیرمنتظره برگرداند. اتصال شبکه یا دسترسی سرویس را بررسی کن.',code:'GEMINI_INVALID_RESPONSE'})}if(!r.ok){
         const code=String(payload?.error?.status||'UPSTREAM_ERROR');
         const descriptions={
           API_KEY_INVALID:'کلید Gemini نامعتبر است یا فعال نشده. در Google AI Studio وضعیت کلید را بررسی کن.',
