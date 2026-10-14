@@ -1,0 +1,34 @@
+import http from 'node:http';
+import {readFile} from 'node:fs/promises';
+import {join,extname,resolve,sep} from 'node:path';
+const root=resolve('public');
+const port=Number(process.env.PORT||8787);
+const key=process.env.GEMINI_API_KEY||'';
+const model=process.env.GEMINI_TEXT_MODEL||'gemini-2.5-flash';
+const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json'};
+const limits=new Map();
+function json(res,code,value){res.writeHead(code,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}
+const server=http.createServer(async(req,res)=>{
+  const url=new URL(req.url||'/', 'http://localhost');
+  if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!key});
+  if(url.pathname==='/api/chat'&&req.method==='POST'){
+    const ip=req.socket.remoteAddress||'unknown';const now=Date.now();const old=limits.get(ip)||{time:now,count:0};const bucket=now-old.time>60000?{time:now,count:0}:old;bucket.count++;limits.set(ip,bucket);
+    if(bucket.count>15)return json(res,429,{error:'درخواست‌های زیادی ارسال شده است.'});
+    if(!key)return json(res,503,{error:'کلید Gemini هنوز روی Render ثبت نشده است.'});
+    try{
+      let data='';for await(const part of req){data+=part;if(data.length>24000)return json(res,413,{error:'درخواست بیش از حد بزرگ است.'})}
+      const body=JSON.parse(data);const message=String(body.message||'').trim().slice(0,2500);
+      if(!message)return json(res,400,{error:'پیام خالی است.'});
+      const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
+      const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(24000)});
+      const payload=await r.json().catch(()=>({}));if(!r.ok)return json(res,502,{error:'پاسخ Gemini در دسترس نیست. کلید و محدودیت API را بررسی کن.'});
+      const reply=(payload.candidates?.[0]?.content?.parts||[]).map(x=>x.text||'').join('').trim();
+      return json(res,reply?200:502,reply?{reply}:{error:'پاسخ خالی دریافت شد.'});
+    }catch(e){return json(res,500,{error:'در دریافت پاسخ مشکلی پیش آمد.'})}
+  }
+  if(req.method!=='GET'&&req.method!=='HEAD')return json(res,405,{error:'Method not allowed'});
+  let path;try{path=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname)}catch{return json(res,400,{error:'مسیر نامعتبر'})}
+  const file=resolve(root,'.'+path);if(file!==root&&!file.startsWith(root+sep))return json(res,403,{error:'Forbidden'});
+  try{const data=await readFile(file);res.writeHead(200,{'content-type':mime[extname(file)]||'application/octet-stream','x-content-type-options':'nosniff','cache-control':path==='/sw.js'?'no-cache':'public, max-age=300'});res.end(req.method==='HEAD'?undefined:data)}catch{json(res,404,{error:'Not found'})}
+});
+server.listen(port,'0.0.0.0',()=>console.log('AVA listening on '+port));
