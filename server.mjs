@@ -13,45 +13,52 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!key});
 
   if(url.pathname==='/api/tts'&&req.method==='POST'){
-    if(!key)return json(res,503,{error:'کلید Gemini تنظیم نشده است.'});
+    if(!key)return json(res,503,{error:'کلید Gemini روی سرور تنظیم نشده است.',code:'NO_KEY'});
     try{
-      let raw='';for await(const c of req){raw+=c;if(raw.length>12000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
+      let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>14000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
       const input=JSON.parse(raw);
-      const text=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,900);
-      if(!text)return json(res,400,{error:'متن خالی است.'});
-      const voice=String(input.voice||'Kore');
-      const chosen=['Kore','Achernar','Aoede','Sulafat','Puck'].includes(voice)?voice:'Kore';
-      const request=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
+      const spokenText=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,900);
+      if(!spokenText)return json(res,400,{error:'متنی برای خواندن دریافت نشد.'});
+      const requestedVoice=String(input.voice||'Kore');
+      const voice=['Kore','Achernar','Aoede','Sulafat','Puck'].includes(requestedVoice)?requestedVoice:'Kore';
+      const ttsModel=process.env.GEMINI_TTS_MODEL||'gemini-3.8-flash-lite-tts';
+      const abort=AbortSignal.timeout(40000);
+      const requestBody={
+        model:ttsModel,
+        input:[{type:'user_input',content:[{type:'text',text:spokenText,annotations:[{type:'speech_metadata',style:'با لهجه طبیعی فارسی ایران، مؤدبانه و گرم، با تلفظ واضح بخوان.'}]}]}],
+        response_format:{type:'audio',mime_type:'audio/wav'},
+        generation_config:{speech_config:[{voice}]}
+      };
+      const response=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
         method:'POST',
         headers:{'x-goog-api-key':key,'content-type':'application/json'},
-        body:JSON.stringify({
-          model:process.env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',
-          input:'این متن را به فارسی ایران، طبیعی، واضح، مؤدبانه و بدون خواندن نشانه‌های نگارشی بخوان: '+text,
-          response_format:{type:'audio'},
-          generation_config:{speech_config:[{voice:chosen,language:'fa-IR'}]}
-        }),
-        signal:AbortSignal.timeout(45000)
+        body:JSON.stringify(requestBody),
+        signal:abort
       });
-      const data=await request.json().catch(()=>({}));
-      if(!request.ok){
-        console.error('[Gemini TTS]',JSON.stringify({status:request.status,reason:data?.error?.message?.slice(0,200)}));
-        return json(res,502,{error:'تولید صدای فارسی فعلاً در دسترس نیست.',code:'TTS_'+request.status});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok){
+        console.error('[Gemini TTS]',JSON.stringify({status:response.status,model:ttsModel,reason:String(payload.error?.message||payload.error?.status||'unknown').slice(0,280)}));
+        const message=response.status===429?'سهمیه تولید صدای فارسی پر شده است.':response.status===503?'سرور تولید صدا موقتاً شلوغ است.':response.status===404?'مدل تولید صدای فارسی در دسترس نیست.':'موتور صدای فارسی پاسخ نداد.';
+        return json(res,502,{error:message,code:'TTS_'+response.status});
       }
-      const output=data.output_audio||data.interaction?.output_audio;
-      if(!output?.data)return json(res,502,{error:'خروجی صوتی از Gemini دریافت نشد.'});
-      const pcm=Buffer.from(output.data,'base64');
-      if(!pcm.length||pcm.length>7_000_000)return json(res,502,{error:'خروجی صدا نامعتبر است.'});
-      const wav=Buffer.allocUnsafe(44+pcm.length);
-      wav.write('RIFF',0);wav.writeUInt32LE(36+pcm.length,4);wav.write('WAVEfmt ',8);
-      wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);
-      wav.writeUInt32LE(24000,24);wav.writeUInt32LE(48000,28);
-      wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);
-      wav.write('data',36);wav.writeUInt32LE(pcm.length,40);pcm.copy(wav,44);
+      const audioPart=payload.output_audio||
+        payload.steps?.flatMap(step=>step.content||[]).filter(c=>c.type==='audio').at(-1)||
+        payload.interaction?.output_audio;
+      const base64=audioPart?.data;
+      if(typeof base64!=='string'||!base64.length){
+        console.error('[Gemini TTS missing audio]',JSON.stringify({keys:Object.keys(payload),steps:payload.steps?.length||0}));
+        return json(res,502,{error:'موتور صوتی پاسخی برگرداند اما فایل صدا داخل آن نبود.',code:'TTS_EMPTY'});
+      }
+      const wav=Buffer.from(base64,'base64');
+      if(wav.length<44||wav.toString('ascii',0,4)!=='RIFF'||wav.length>12_000_000){
+        console.error('[Gemini TTS invalid audio]',JSON.stringify({bytes:wav.length,header:wav.subarray(0,4).toString('ascii')}));
+        return json(res,502,{error:'فرمت صدای تولیدشده معتبر نبود.',code:'TTS_FORMAT'});
+      }
       res.writeHead(200,{'content-type':'audio/wav','content-length':wav.length,'cache-control':'no-store','x-content-type-options':'nosniff'});
       res.end(wav);
     }catch(error){
-      console.error('[TTS transport]',error?.name||'Error');
-      json(res,502,{error:'ارتباط با موتور صدای فارسی برقرار نشد.'});
+      console.error('[Gemini TTS transport]',error?.name||'Error',String(error?.message||'').slice(0,180));
+      return json(res,502,{error:error?.name==='TimeoutError'?'تولید صدا بیش از حد طول کشید. لطفاً دوباره امتحان کن.':'ارتباط با موتور صدای فارسی برقرار نشد.',code:'TTS_NETWORK'});
     }
     return;
   }
