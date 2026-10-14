@@ -1,0 +1,13 @@
+{
+  "name": "ava-assistant-pwa",
+  "version": "1.2.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --check server.mjs && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
