@@ -11,6 +11,50 @@ function json(res,code,value){res.writeHead(code,{'content-type':'application/js
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
   if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!key});
+
+  if(url.pathname==='/api/tts'&&req.method==='POST'){
+    if(!key)return json(res,503,{error:'کلید Gemini تنظیم نشده است.'});
+    try{
+      let raw='';for await(const c of req){raw+=c;if(raw.length>12000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
+      const input=JSON.parse(raw);
+      const text=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,900);
+      if(!text)return json(res,400,{error:'متن خالی است.'});
+      const voice=String(input.voice||'Kore');
+      const chosen=['Kore','Achernar','Aoede','Sulafat','Puck'].includes(voice)?voice:'Kore';
+      const request=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
+        method:'POST',
+        headers:{'x-goog-api-key':key,'content-type':'application/json'},
+        body:JSON.stringify({
+          model:process.env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',
+          input:'این متن را به فارسی ایران، طبیعی، واضح، مؤدبانه و بدون خواندن نشانه‌های نگارشی بخوان: '+text,
+          response_format:{type:'audio'},
+          generation_config:{speech_config:[{voice:chosen,language:'fa-IR'}]}
+        }),
+        signal:AbortSignal.timeout(45000)
+      });
+      const data=await request.json().catch(()=>({}));
+      if(!request.ok){
+        console.error('[Gemini TTS]',JSON.stringify({status:request.status,reason:data?.error?.message?.slice(0,200)}));
+        return json(res,502,{error:'تولید صدای فارسی فعلاً در دسترس نیست.',code:'TTS_'+request.status});
+      }
+      const output=data.output_audio||data.interaction?.output_audio;
+      if(!output?.data)return json(res,502,{error:'خروجی صوتی از Gemini دریافت نشد.'});
+      const pcm=Buffer.from(output.data,'base64');
+      if(!pcm.length||pcm.length>7_000_000)return json(res,502,{error:'خروجی صدا نامعتبر است.'});
+      const wav=Buffer.allocUnsafe(44+pcm.length);
+      wav.write('RIFF',0);wav.writeUInt32LE(36+pcm.length,4);wav.write('WAVEfmt ',8);
+      wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);
+      wav.writeUInt32LE(24000,24);wav.writeUInt32LE(48000,28);
+      wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);
+      wav.write('data',36);wav.writeUInt32LE(pcm.length,40);pcm.copy(wav,44);
+      res.writeHead(200,{'content-type':'audio/wav','content-length':wav.length,'cache-control':'no-store','x-content-type-options':'nosniff'});
+      res.end(wav);
+    }catch(error){
+      console.error('[TTS transport]',error?.name||'Error');
+      json(res,502,{error:'ارتباط با موتور صدای فارسی برقرار نشد.'});
+    }
+    return;
+  }
   if(url.pathname==='/api/chat'&&req.method==='POST'){
     const ip=req.socket.remoteAddress||'unknown';const now=Date.now();const old=limits.get(ip)||{time:now,count:0};const bucket=now-old.time>60000?{time:now,count:0}:old;bucket.count++;limits.set(ip,bucket);
     if(bucket.count>15)return json(res,429,{error:'درخواست‌های زیادی ارسال شده است.'});
