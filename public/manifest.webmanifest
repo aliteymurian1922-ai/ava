@@ -1,0 +1,11 @@
+{
+  "name": "آوا | دستیار هوشمند",
+  "short_name": "آوا",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080b17",
+  "theme_color": "#080b17"
+}
