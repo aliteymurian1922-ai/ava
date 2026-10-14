@@ -5,6 +5,10 @@ const root=resolve('public');
 const port=Number(process.env.PORT||8787);
 const key=process.env.GEMINI_API_KEY||'';
 const model=process.env.GEMINI_TEXT_MODEL||'gemini-2.5-flash';
+const routerKey=process.env.NINEROUTER_API_KEY||'';
+const routerModel=process.env.NINEROUTER_MODEL||'';
+const routerBase=process.env.NINEROUTER_BASE_URL||'https://9router.com/v1';
+const routerReady=!!(routerKey&&routerModel);
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json'};
 const limits=new Map();
 function json(res,code,value){res.writeHead(code,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}
@@ -27,7 +31,7 @@ function dateTimeAnswer(message,clock){
 
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
-  if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!key});
+  if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!(key||routerReady),routerConfigured:routerReady});
 
   if(url.pathname==='/api/tts'&&req.method==='POST'){
     if(!key)return json(res,503,{error:'کلید Gemini روی سرور تنظیم نشده است.',code:'NO_KEY'});
@@ -82,7 +86,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/chat'&&req.method==='POST'){
     const ip=req.socket.remoteAddress||'unknown';const now=Date.now();const old=limits.get(ip)||{time:now,count:0};const bucket=now-old.time>60000?{time:now,count:0}:old;bucket.count++;limits.set(ip,bucket);
     if(bucket.count>15)return json(res,429,{error:'درخواست‌های زیادی ارسال شده است.'});
-    if(!key)return json(res,503,{error:'کلید Gemini هنوز روی Render ثبت نشده است.'});
+    if(!key&&!routerReady)return json(res,503,{error:'هیچ سرویس هوش مصنوعی روی Render تنظیم نشده است.'});
     try{
       let data='';for await(const part of req){data+=part;if(data.length>24000)return json(res,413,{error:'درخواست بیش از حد بزرگ است.'})}
       const body=JSON.parse(data);const message=String(body.message||'').trim().slice(0,2500);
@@ -91,6 +95,22 @@ const server=http.createServer(async(req,res)=>{
       const exact=dateTimeAnswer(message,clock);
       if(exact)return json(res,200,{reply:exact,source:'device_clock'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
+      if(routerReady){
+        try{
+          const endpoint=new URL(routerBase.replace(/\\/$/,'')+'/chat/completions');
+          if(endpoint.protocol!=='https:'||!['9router.com','api.9router.com'].includes(endpoint.hostname))throw Error('Router endpoint must be a trusted HTTPS host');
+          const instruction='تو آوا، دستیار فارسی دفتر مدیرعامل هستی. محترم و کوتاه پاسخ بده. زمان فعلی: '+clock.clock+'، تاریخ شمسی: '+clock.shamsi+'، تاریخ میلادی: '+clock.gregorian+'، منطقه زمانی: '+clock.zone+'. اگر اطلاعات روز یا جست‌وجوی اینترنت لازم بود و ابزار متصل نداری، روشن بگو به اطلاعات زنده دسترسی نداری. ادعای جست‌وجوی انجام‌نشده نکن.';
+          const chatMessages=[{role:'system',content:instruction},...history.map(x=>({role:x.role==='model'?'assistant':'user',content:x.parts[0].text})),{role:'user',content:message}];
+          const rr=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+routerKey},body:JSON.stringify({model:routerModel,messages:chatMessages,max_tokens:750,temperature:0.4}),signal:AbortSignal.timeout(26000)});
+          const rd=await rr.json().catch(()=>({}));
+          const answer=rd.choices?.[0]?.message?.content;
+          if(!rr.ok||typeof answer!=='string'||!answer.trim())throw Error('Router HTTP '+rr.status);
+          return json(res,200,{reply:answer.trim(),provider:'9router',searched:false,sources:[]});
+        }catch(e){
+          console.error('[9Router fallback]',String(e.message||'connection failed').slice(0,100));
+          if(!key)return json(res,502,{error:'ارتباط 9Router برقرار نشد؛ مدل، کلید و آدرس اتصال را در Render بررسی کن.',code:'ROUTER_FAILED'});
+        }
+      }
       const requestUrl='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent';
       const requestOptions={method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن. اکنون ساعت '+clock.clock+' و تاریخ شمسی '+clock.shamsi+' و میلادی '+clock.gregorian+' است. منطقه زمانی '+clock.zone+' است. برای پرسش‌های زمان و تاریخ فقط از این اطلاعات استفاده کن و اگر زمان در آینده یا اطلاعات آنلاین لازم بود، بدون منبع حدس نزن. برای اطلاعات روز، قیمت‌ها، اخبار، اطلاعات نامطمئن و سؤال‌هایی که دانش کافی نداری از ابزار Google Search استفاده کن. اگر از سرچ استفاده کردی ابتدا در پاسخ نهایی بگو «بررسی کردم:» و سپس پاسخ مستند و کوتاه بده. اگر سرچ ناموفق بود یا شواهد کافی نبود، صادقانه بگو نتوانستم تأیید کنم. هیچ‌وقت وانمود نکن سرچ انجام شده اگر ابزار استفاده نشده. اطلاعات محرمانه دفتر یا کاربران را در جستجو فاش نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:800,temperature:.4},tools:[{google_search:{}}]}),signal:AbortSignal.timeout(22000)};
       let r;for(let attempt=0;attempt<3;attempt++){
