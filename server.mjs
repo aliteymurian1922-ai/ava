@@ -8,6 +8,23 @@ const model=process.env.GEMINI_TEXT_MODEL||'gemini-2.5-flash';
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json'};
 const limits=new Map();
 function json(res,code,value){res.writeHead(code,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}
+
+function clockContext(zone='Asia/Tehran'){
+  try{new Intl.DateTimeFormat('en-US',{timeZone:zone}).format()}catch{zone='Asia/Tehran'}
+  const now=new Date();
+  const opts={timeZone:zone};
+  const gregorian=new Intl.DateTimeFormat('fa-IR',{...opts,calendar:'gregory',weekday:'long',year:'numeric',month:'long',day:'numeric'}).format(now);
+  const shamsi=new Intl.DateTimeFormat('fa-IR',{...opts,calendar:'persian',weekday:'long',year:'numeric',month:'long',day:'numeric'}).format(now);
+  const clock=new Intl.DateTimeFormat('fa-IR',{...opts,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now);
+  return {zone,clock,shamsi,gregorian,iso:now.toISOString()};
+}
+function dateTimeAnswer(message,clock){
+  const q=String(message||'').replace(/[آأإا]/g,'ا').trim();
+  if(/(ساعت چند|چه ساعتیه|الان ساعت|ساعت الان)/.test(q))return 'الان ساعت '+clock.clock+' به وقت '+(clock.zone==='Asia/Tehran'?'ایران':clock.zone)+' است.';
+  if(/(امروز چه روز|امروز چندم|تاریخ امروز|الان چه تاریخ|امروز تاریخ)/.test(q))return 'امروز '+clock.shamsi+' است. تاریخ میلادی هم '+clock.gregorian+' است.';
+  return null;
+}
+
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
   if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!key});
@@ -70,9 +87,12 @@ const server=http.createServer(async(req,res)=>{
       let data='';for await(const part of req){data+=part;if(data.length>24000)return json(res,413,{error:'درخواست بیش از حد بزرگ است.'})}
       const body=JSON.parse(data);const message=String(body.message||'').trim().slice(0,2500);
       if(!message)return json(res,400,{error:'پیام خالی است.'});
+      const clock=clockContext(typeof body.timeZone==='string'&&body.timeZone.length<=80?body.timeZone:'Asia/Tehran');
+      const exact=dateTimeAnswer(message,clock);
+      if(exact)return json(res,200,{reply:exact,source:'device_clock'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
       const requestUrl='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent';
-      const requestOptions={method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(22000)};
+      const requestOptions={method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن. اکنون ساعت '+clock.clock+' و تاریخ شمسی '+clock.shamsi+' و میلادی '+clock.gregorian+' است. منطقه زمانی '+clock.zone+' است. برای پرسش‌های زمان و تاریخ فقط از این اطلاعات استفاده کن و اگر زمان در آینده یا اطلاعات آنلاین لازم بود، بدون منبع حدس نزن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(22000)};
       let r;for(let attempt=0;attempt<3;attempt++){
         r=await fetch(requestUrl,requestOptions);
         if(![429,500,502,503,504].includes(r.status)||attempt===2)break;
