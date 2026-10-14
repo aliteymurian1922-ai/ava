@@ -92,7 +92,7 @@ const server=http.createServer(async(req,res)=>{
       if(exact)return json(res,200,{reply:exact,source:'device_clock'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
       const requestUrl='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent';
-      const requestOptions={method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن. اکنون ساعت '+clock.clock+' و تاریخ شمسی '+clock.shamsi+' و میلادی '+clock.gregorian+' است. منطقه زمانی '+clock.zone+' است. برای پرسش‌های زمان و تاریخ فقط از این اطلاعات استفاده کن و اگر زمان در آینده یا اطلاعات آنلاین لازم بود، بدون منبع حدس نزن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(22000)};
+      const requestOptions={method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن. اکنون ساعت '+clock.clock+' و تاریخ شمسی '+clock.shamsi+' و میلادی '+clock.gregorian+' است. منطقه زمانی '+clock.zone+' است. برای پرسش‌های زمان و تاریخ فقط از این اطلاعات استفاده کن و اگر زمان در آینده یا اطلاعات آنلاین لازم بود، بدون منبع حدس نزن. برای اطلاعات روز، قیمت‌ها، اخبار، اطلاعات نامطمئن و سؤال‌هایی که دانش کافی نداری از ابزار Google Search استفاده کن. اگر از سرچ استفاده کردی ابتدا در پاسخ نهایی بگو «بررسی کردم:» و سپس پاسخ مستند و کوتاه بده. اگر سرچ ناموفق بود یا شواهد کافی نبود، صادقانه بگو نتوانستم تأیید کنم. هیچ‌وقت وانمود نکن سرچ انجام شده اگر ابزار استفاده نشده. اطلاعات محرمانه دفتر یا کاربران را در جستجو فاش نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:800,temperature:.4},tools:[{google_search:{}}]}),signal:AbortSignal.timeout(22000)};
       let r;for(let attempt=0;attempt<3;attempt++){
         r=await fetch(requestUrl,requestOptions);
         if(![429,500,502,503,504].includes(r.status)||attempt===2)break;
@@ -122,8 +122,12 @@ const server=http.createServer(async(req,res)=>{
         console.error('[Gemini upstream]',JSON.stringify({httpStatus:r.status,code,model,reason:payload?.error?.message?.slice(0,300)}));
         return json(res,502,{error:reason,code:'GEMINI_'+r.status});
       }
-      const reply=(payload.candidates?.[0]?.content?.parts||[]).map(x=>x.text||'').join('').trim();
-      return json(res,reply?200:502,reply?{reply}:{error:'پاسخ خالی دریافت شد.'});
+      const candidate=payload.candidates?.[0]||{};
+      const reply=(candidate.content?.parts||[]).map(x=>x.text||'').join('').trim();
+      const metadata=candidate.groundingMetadata||{};
+      const searched=!!(metadata.webSearchQueries?.length||metadata.groundingChunks?.length);
+      const sources=(metadata.groundingChunks||[]).map(x=>x.web).filter(x=>x&&typeof x.uri==='string'&&/^https:\/\//.test(x.uri)).slice(0,5).map(x=>({title:String(x.title||'منبع وب').slice(0,120),url:x.uri}));
+      return json(res,reply?200:502,reply?{reply,searched,sources}:{error:'پاسخ خالی دریافت شد.'});
     }catch(e){console.error('[Gemini transport]',e?.name||'Error',e?.message?.slice(0,180));return json(res,502,{error:'اتصال سرور به Gemini با خطا یا تأخیر مواجه شد.',code:'GEMINI_NETWORK'})}
   }
   if(req.method!=='GET'&&req.method!=='HEAD')return json(res,405,{error:'Method not allowed'});
