@@ -21,10 +21,28 @@ const server=http.createServer(async(req,res)=>{
       if(!message)return json(res,400,{error:'پیام خالی است.'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
       const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:'تو آوا هستی. دستیار فارسی محترم، کوتاه‌گو و حرفه‌ای برای دفتر مدیرعامل. بدون درخواست مستقیم کاربر هیچ‌وقت مکالمه را آغاز نکن. درباره اقدامات انجام نشده ادعایی نکن.'}]},contents:[...history,{role:'user',parts:[{text:message}]}],generationConfig:{maxOutputTokens:700,temperature:.5}}),signal:AbortSignal.timeout(24000)});
-      const payload=await r.json().catch(()=>({}));if(!r.ok)return json(res,502,{error:'پاسخ Gemini در دسترس نیست. کلید و محدودیت API را بررسی کن.'});
+      const payload=await r.json().catch(()=>({}));if(!r.ok){
+        const code=String(payload?.error?.status||'UPSTREAM_ERROR');
+        const descriptions={
+          API_KEY_INVALID:'کلید Gemini نامعتبر است یا فعال نشده. در Google AI Studio وضعیت کلید را بررسی کن.',
+          PERMISSION_DENIED:'دسترسی Gemini مجاز نیست. محدودیت‌های کلید، منطقه یا پروژه Google Cloud را بررسی کن.',
+          RESOURCE_EXHAUSTED:'سهمیه یا اعتبار Gemini تمام شده یا محدودیت درخواست فعال شده است.',
+          NOT_FOUND:'مدل Gemini انتخاب‌شده برای این کلید در دسترس نیست.',
+          FAILED_PRECONDITION:'پروژه Gemini به تنظیمات بیشتر یا فعال‌سازی صورتحساب نیاز دارد.',
+          UNAUTHENTICATED:'احراز هویت Gemini ناموفق بود. کلید API را بررسی کن.'
+        };
+        const reason= r.status===429?'محدودیت تعداد درخواست یا سهمیه Gemini فعال شده است.':
+          r.status===404?descriptions.NOT_FOUND:
+          r.status===401?descriptions.UNAUTHENTICATED:
+          r.status===403?descriptions.PERMISSION_DENIED:
+          r.status===400?descriptions.API_KEY_INVALID:
+          descriptions[code]||'ارتباط Gemini ناموفق بود. وضعیت سرویس و کلید را بررسی کن.';
+        console.error('[Gemini upstream]',JSON.stringify({httpStatus:r.status,code,model,reason:payload?.error?.message?.slice(0,300)}));
+        return json(res,502,{error:reason,code:'GEMINI_'+r.status});
+      }
       const reply=(payload.candidates?.[0]?.content?.parts||[]).map(x=>x.text||'').join('').trim();
       return json(res,reply?200:502,reply?{reply}:{error:'پاسخ خالی دریافت شد.'});
-    }catch(e){return json(res,500,{error:'در دریافت پاسخ مشکلی پیش آمد.'})}
+    }catch(e){console.error('[Gemini transport]',e?.name||'Error',e?.message?.slice(0,180));return json(res,502,{error:'اتصال سرور به Gemini با خطا یا تأخیر مواجه شد.',code:'GEMINI_NETWORK'})}
   }
   if(req.method!=='GET'&&req.method!=='HEAD')return json(res,405,{error:'Method not allowed'});
   let path;try{path=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname)}catch{return json(res,400,{error:'مسیر نامعتبر'})}
