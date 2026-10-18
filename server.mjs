@@ -97,7 +97,7 @@ const server=http.createServer(async(req,res)=>{
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
       if(routerReady){
         try{
-          const endpoint=new URL(routerBase.replace(/\\/$/,'')+'/chat/completions');
+          const endpoint=new URL(routerBase.replace(/\/$/,'')+'/chat/completions');
           if(endpoint.protocol!=='https:'||!['9router.com','api.9router.com'].includes(endpoint.hostname))throw Error('Router endpoint must be a trusted HTTPS host');
           const instruction='تو آوا، دستیار فارسی دفتر مدیرعامل هستی. محترم و کوتاه پاسخ بده. زمان فعلی: '+clock.clock+'، تاریخ شمسی: '+clock.shamsi+'، تاریخ میلادی: '+clock.gregorian+'، منطقه زمانی: '+clock.zone+'. اگر اطلاعات روز یا جست‌وجوی اینترنت لازم بود و ابزار متصل نداری، روشن بگو به اطلاعات زنده دسترسی نداری. ادعای جست‌وجوی انجام‌نشده نکن.';
           const chatMessages=[{role:'system',content:instruction},...history.map(x=>({role:x.role==='model'?'assistant':'user',content:x.parts[0].text})),{role:'user',content:message}];
