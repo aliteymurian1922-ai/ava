@@ -67,3 +67,44 @@ body.full .topbar,body.full footer{display:none}body.full .workspace{min-height:
 @media(max-width:980px){.workspace{grid-template-columns:1fr 1fr;direction:rtl}.center-panel{grid-column:1/-1;grid-row:1;min-height:610px}.settings-panel{grid-row:2;grid-column:2}.chat-panel{grid-row:2;grid-column:1;height:630px}.orb-scene{height:330px}}
 @media(max-width:620px){.topbar{padding:12px;border-radius:20px;height:auto}.brand-copy span{display:none}.header-status{font-size:10px;padding:6px 9px}.header-btn{width:36px;height:36px}.workspace{grid-template-columns:1fr;gap:14px}.center-panel{grid-row:1;grid-column:1;min-height:540px}.chat-panel{grid-column:1;grid-row:2;height:480px;min-height:480px}.settings-panel{grid-column:1;grid-row:3}.hero h1{font-size:60px}.hero h2{font-size:15px;padding:0 9px}.hero p{font-size:11px;padding:0 12px}.orb-scene{height:294px}.orb{width:168px;height:168px}.orbit-1{width:280px;height:280px}.orbit-2{width:238px;height:238px}.orbit-3{width:196px;height:196px}.controls{gap:8px}.controls button{min-height:52px;font-size:11px;padding:8px 10px}.stop-btn{width:39px;min-height:52px!important}.voice-status{margin-top:14px}.voice-disclaimer{margin-top:12px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* Ava Core V2: cinematic, layered voice visualization */
+.orb-pro{isolation:isolate;overflow:visible;perspective:850px}
+.orb-pro .aura-halo{position:absolute;width:360px;height:360px;border-radius:50%;background:radial-gradient(circle,#4acfff25 0%,#5862ff1e 38%,#8c4dff0a 57%,transparent 72%);filter:blur(26px);animation:ava-halo 5.8s ease-in-out infinite;pointer-events:none}
+.orb-pro .hud-orbit,.orb-pro .hud-arc{position:absolute;border-radius:50%;pointer-events:none}
+.orb-pro .hud-orbit{border:1px solid #87c4ff28}
+.orb-pro .hud-outer{width:340px;height:340px;border-style:dotted;border-color:#82d6ff5c;animation:ava-spin 30s linear infinite}
+.orb-pro .hud-middle{width:290px;height:290px;border-style:dashed;border-color:#ac83ff45;animation:ava-spin-rev 19s linear infinite}
+.orb-pro .hud-inner{width:252px;height:252px;border-color:#85baff3d;box-shadow:0 0 30px #6968ff12 inset}
+.orb-pro .hud-arc{border:2px solid transparent;filter:drop-shadow(0 0 10px #78b9ff55)}
+.orb-pro .arc-blue{width:321px;height:321px;border-top-color:#83ddffb5;border-right-color:#83ddff30;animation:ava-spin 13s linear infinite}
+.orb-pro .arc-purple{width:267px;height:267px;border-bottom-color:#b48affbb;border-left-color:#b48aff2b;animation:ava-spin-rev 10s linear infinite}
+.orb-pro .orbit{opacity:.48}
+.orb-pro #orb{width:213px;height:213px;overflow:hidden;background:radial-gradient(circle at 33% 25%,#ffffff 0%,#ddfaff 8%,#71c9ff 26%,#5969e9 53%,#6a3abb 75%,#1b174c 100%);border:1px solid #c6efff88;box-shadow:0 0 0 6px #92c0ff16,0 0 24px #52d9ff9d,0 0 85px #7473ff9e,inset -20px -33px 44px #0d0c43a6,inset 17px 13px 26px #effbff59;animation:ava-float 4.2s ease-in-out infinite}
+.orb-pro #orb:before{content:"";position:absolute;inset:13px;border:1px solid #ffffff66;border-radius:50%;z-index:3}
+.orb-pro #orb .orb-inner{inset:24px;border-width:15px;border-top-color:#ceecffad;border-right-color:#aed9ff7d;transform:rotate(-28deg);animation:ava-spin 13s linear infinite;z-index:2}
+.orb-pro #orb .orb-highlight{z-index:5;background:#ffffffb0;filter:blur(22px)}
+.orb-pro #orb .orb-swirl{z-index:4;border-bottom-color:#9feeff;filter:drop-shadow(0 0 7px #b6eaff);animation:ava-ribbon 7s ease-in-out infinite}
+.orb-pro .plasma-ribbon{position:absolute;inset:24px;border-radius:38% 62% 62% 38%/45% 42% 58% 55%;border:8px solid transparent;border-bottom-color:#abecffbb;border-left-color:#b6a7ffd1;transform:rotate(-28deg);filter:blur(3px);mix-blend-mode:screen;animation:ava-ribbon 8s ease-in-out infinite}
+.orb-pro .plasma-lines{position:absolute;inset:20px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 12%,#ffffff10 19%,transparent 26% 48%,#72dfff30 53%,transparent 63% 80%,#b792ff42 88%,transparent);mix-blend-mode:screen;animation:ava-spin 11s linear infinite}
+.orb-pro .orb-particles{position:absolute;inset:0;pointer-events:none}
+.orb-pro .orb-particles i{position:absolute;width:5px;height:5px;border-radius:50%;background:#ccf6ff;box-shadow:0 0 10px 3px #65d2ff77;animation:ava-particle 5s ease-in-out infinite}
+.orb-pro .orb-particles i:nth-child(1){top:23%;left:24%}
+.orb-pro .orb-particles i:nth-child(2){top:34%;right:20%;animation-delay:-2s;width:4px;height:4px}
+.orb-pro .orb-particles i:nth-child(3){bottom:23%;left:27%;animation-delay:-3s}
+.orb-pro .orb-particles i:nth-child(4){bottom:25%;right:26%;animation-delay:-1s;width:3px;height:3px}
+.orb-pro .orb-particles i:nth-child(5){top:47%;left:9%;animation-delay:-4s}
+.orb-pro .orb-particles i:nth-child(6){top:48%;right:8%;animation-delay:-2.6s;width:3px;height:3px}
+.orb-pro #orb.listen{animation:ava-listen .95s ease-in-out infinite;box-shadow:0 0 0 8px #65efff2a,0 0 105px #64efffb7,inset 0 0 32px #b3edff88}
+.orb-pro #orb.think{animation:ava-think 2s ease-in-out infinite;box-shadow:0 0 98px #a880ffbd,inset 0 0 30px #a991ff65}
+.orb-pro #orb.speak{animation:ava-speak .75s ease-in-out infinite;box-shadow:0 0 125px #7ee4ffcc,inset 0 0 38px #d2f8ffaa}
+@keyframes ava-halo{50%{transform:scale(1.13);opacity:.7}}
+@keyframes ava-spin{to{transform:rotate(360deg)}}
+@keyframes ava-spin-rev{to{transform:rotate(-360deg)}}
+@keyframes ava-float{50%{transform:translateY(-8px) scale(1.03)}}
+@keyframes ava-listen{50%{transform:scale(1.09)}}
+@keyframes ava-think{50%{transform:scale(1.025) rotate(15deg)}}
+@keyframes ava-speak{50%{transform:scale(1.11)}}
+@keyframes ava-ribbon{50%{transform:rotate(16deg) scale(.95)}}
+@keyframes ava-particle{50%{opacity:.25;transform:translateY(-17px) translateX(8px)}}
+@media(max-width:620px){.orb-pro .hud-outer{width:287px;height:287px}.orb-pro .hud-middle{width:244px;height:244px}.orb-pro .hud-inner{width:200px;height:200px}.orb-pro .arc-blue{width:275px;height:275px}.orb-pro .arc-purple{width:218px;height:218px}.orb-pro #orb{width:177px;height:177px}.orb-pro .aura-halo{width:280px;height:280px}}
+@media(prefers-reduced-motion:reduce){.orb-pro *{animation:none!important}}
