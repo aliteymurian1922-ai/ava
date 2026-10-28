@@ -5,7 +5,13 @@
   "private": true,
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --check server.mjs && node --check public/app.js"
+    "test": "node --check server.mjs && node --check public/app.js && node --check desktop/main.cjs",
+    "desktop": "electron desktop/main.cjs",
+    "desktop:build": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
   },
   "engines": {
     "node": ">=20"
