@@ -52,6 +52,17 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/api/tts'&&req.method==='POST'){
+    if(netzarzKey){
+      try{
+        let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>14000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
+        const input=JSON.parse(raw);const spokenText=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,3000);
+        if(!spokenText)return json(res,400,{error:'متنی برای خواندن دریافت نشد.'});
+        const upstream=await fetch(netarzBase.replace(/\/$/,'')+'/audio/speech',{method:'POST',headers:{authorization:'Bearer '+netarzKey,'content-type':'application/json'},body:JSON.stringify({model:process.env.NETARZ_TTS_MODEL||'gpt-4o-mini-tts',voice:'nova',input:spokenText,response_format:'mp3',instructions:'با لهجه طبیعی فارسی ایران، گرم و واضح صحبت کن.'}),signal:AbortSignal.timeout(45000)});
+        const audio=Buffer.from(await upstream.arrayBuffer());
+        if(!upstream.ok)return json(res,502,{error:'تولید صدای فارسی با NetArz ناموفق بود.',code:'TTS_NETARZ_'+upstream.status});
+        res.writeHead(200,{'content-type':upstream.headers.get('content-type')||'audio/mpeg','content-length':audio.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(audio);return;
+      }catch(error){console.error('[NetArz TTS]',error?.name||'Error',String(error?.message||'').slice(0,180));return json(res,502,{error:error?.name==='TimeoutError'?'تولید صدا بیش از حد طول کشید.':'ارتباط با موتور صدای NetArz برقرار نشد.',code:'TTS_NETARZ_NETWORK'})}
+    }
     if(!key)return json(res,503,{error:'کلید Gemini روی سرور تنظیم نشده است.',code:'NO_KEY'});
     try{
       let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>14000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
