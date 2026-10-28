@@ -9,6 +9,12 @@ const routerKey=process.env.NINEROUTER_API_KEY||'';
 const routerModel=process.env.NINEROUTER_MODEL||'';
 const routerBase=process.env.NINEROUTER_BASE_URL||'https://9router.com/v1';
 const routerReady=!!(routerKey&&routerModel);
+const netarzKey=process.env.NETARZ_API_KEY||'';
+const netarzModel=process.env.NETARZ_MODEL||'gemini-3.8-flash';
+const netarzBase=process.env.NETARZ_BASE_URL||'https://netarz.ir/api/ai/v1';
+const netarzReady=!!netarzKey;
+const groqKey=process.env.GROQ_API_KEY||'';
+const groqModel=process.env.GROQ_STT_MODEL||'whisper-large-v3-turbo';
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.webmanifest':'application/manifest+json'};
 const limits=new Map();
 function json(res,code,value){res.writeHead(code,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(value))}
@@ -31,7 +37,15 @@ function dateTimeAnswer(message,clock){
 
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url||'/', 'http://localhost');
-  if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!(key||routerReady),routerConfigured:routerReady});
+  if(url.pathname==='/api/health')return json(res,200,{ok:true,aiConfigured:!!(key||routerReady||netarzReady),routerConfigured:routerReady||netarzReady,netarzConfigured:netarzReady,sttConfigured:!!(groqKey||key),sttProvider:groqKey?'groq':key?'gemini':'unconfigured'});
+  if(url.pathname==='/api/stt'&&req.method==='POST'&&groqKey){
+    if(!groqKey&&!key)return json(res,503,{error:'برای تشخیص صدا، GEMINI_API_KEY یا GROQ_API_KEY را روی سرور تنظیم کنید.',code:'NO_STT_KEY'});
+    try{const type=req.headers['content-type']||'';if(!type.toLowerCase().startsWith('audio/'))return json(res,415,{error:'فایل صوتی معتبر دریافت نشد.'});const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>12000000)return json(res,413,{error:'فایل صوتی بیش از حد بزرگ است.'});chunks.push(chunk)}const audio=Buffer.concat(chunks);if(!audio.length)return json(res,400,{error:'فایل صوتی خالی است.'});const form=new FormData();form.append('file',new Blob([audio],{type:type.split(';')[0]}),'ava-recording.webm');form.append('model',groqModel);form.append('language','fa');form.append('response_format','json');const upstream=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{method:'POST',headers:{authorization:'Bearer '+groqKey},body:form,signal:AbortSignal.timeout(45000)});const payload=await upstream.json().catch(()=>({}));if(!upstream.ok)return json(res,502,{error:'تشخیص گفتار فارسی ناموفق بود.',code:'STT_UPSTREAM_'+upstream.status});return json(res,200,{text:typeof payload.text==='string'?payload.text.trim():'',provider:'groq',model:groqModel})}catch(error){console.error('[STT]',error?.name||'Error',String(error?.message||'').slice(0,180));return json(res,502,{error:error?.name==='TimeoutError'?'تشخیص صدا بیش از حد طول کشید.':'ارتباط با سرویس تشخیص گفتار برقرار نشد.',code:'STT_NETWORK'})}
+  }
+
+  if(url.pathname==='/api/stt'&&req.method==='POST'&&!groqKey&&key){
+    try{const type=req.headers['content-type']||'';if(!type.toLowerCase().startsWith('audio/'))return json(res,415,{error:'فایل صوتی معتبر دریافت نشد.'});const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>12000000)return json(res,413,{error:'فایل صوتی بیش از حد بزرگ است.'});chunks.push(chunk)}const audio=Buffer.concat(chunks);if(!audio.length)return json(res,400,{error:'فایل صوتی خالی است.'});const modelName=process.env.GEMINI_STT_MODEL||model;const upstream=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(modelName)+':generateContent',{method:'POST',headers:{'x-goog-api-key':key,'content-type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:[{text:'این فایل صوتی را دقیقاً به فارسی ایران پیاده‌سازی کن. فقط متن گفته‌شده را برگردان و هیچ توضیحی اضافه نکن.'},{inline_data:{mime_type:type.split(';')[0],data:audio.toString('base64')}}]}],generationConfig:{temperature:0}}),signal:AbortSignal.timeout(45000)});const payload=await upstream.json().catch(()=>({}));if(!upstream.ok)return json(res,502,{error:'تشخیص گفتار با Gemini ناموفق بود.',code:'STT_GEMINI_'+upstream.status});const text=(payload.candidates?.[0]?.content?.parts||[]).map(x=>x.text||'').join('').trim();return json(res,200,{text,provider:'gemini',model:modelName})}catch(error){console.error('[Gemini STT]',error?.name||'Error',String(error?.message||'').slice(0,180));return json(res,502,{error:error?.name==='TimeoutError'?'تشخیص صدا بیش از حد طول کشید.':'ارتباط با Gemini برقرار نشد.',code:'STT_GEMINI_NETWORK'})}
+  }
 
   if(url.pathname==='/api/tts'&&req.method==='POST'){
     if(!key)return json(res,503,{error:'کلید Gemini روی سرور تنظیم نشده است.',code:'NO_KEY'});
@@ -86,7 +100,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/chat'&&req.method==='POST'){
     const ip=req.socket.remoteAddress||'unknown';const now=Date.now();const old=limits.get(ip)||{time:now,count:0};const bucket=now-old.time>60000?{time:now,count:0}:old;bucket.count++;limits.set(ip,bucket);
     if(bucket.count>15)return json(res,429,{error:'درخواست‌های زیادی ارسال شده است.'});
-    if(!key&&!routerReady)return json(res,503,{error:'هیچ سرویس هوش مصنوعی روی Render تنظیم نشده است.'});
+    if(!key&&!routerReady&&!netarzReady)return json(res,503,{error:'هیچ سرویس هوش مصنوعی روی Render تنظیم نشده است.'});
     try{
       let data='';for await(const part of req){data+=part;if(data.length>24000)return json(res,413,{error:'درخواست بیش از حد بزرگ است.'})}
       const body=JSON.parse(data);const message=String(body.message||'').trim().slice(0,2500);
@@ -95,20 +109,22 @@ const server=http.createServer(async(req,res)=>{
       const exact=dateTimeAnswer(message,clock);
       if(exact)return json(res,200,{reply:exact,source:'device_clock'});
       const history=Array.isArray(body.history)?body.history.slice(-10).filter(x=>x&&typeof x.text==='string'&&['user','assistant'].includes(x.role)).map(x=>({role:x.role==='assistant'?'model':'user',parts:[{text:x.text.slice(0,2000)}]})):[];
-      if(routerReady){
+      if(routerReady||netarzReady){
         try{
-          const endpoint=new URL(routerBase.replace(/\/$/,'')+'/chat/completions');
-          if(endpoint.protocol!=='https:'||!['9router.com','api.9router.com'].includes(endpoint.hostname))throw Error('Router endpoint must be a trusted HTTPS host');
+          const useNetarz=netarzReady&&!routerReady;
+          const endpoint=new URL((useNetarz?netarzBase:routerBase).replace(/\/$/,'')+'/chat/completions');
+          const allowed=useNetarz?['netarz.ir']:['9router.com','api.9router.com'];
+          if(endpoint.protocol!=='https:'||!allowed.includes(endpoint.hostname))throw Error('Router endpoint must be a trusted HTTPS host');
           const instruction='تو آوا، دستیار فارسی دفتر مدیرعامل هستی. محترم و کوتاه پاسخ بده. زمان فعلی: '+clock.clock+'، تاریخ شمسی: '+clock.shamsi+'، تاریخ میلادی: '+clock.gregorian+'، منطقه زمانی: '+clock.zone+'. اگر اطلاعات روز یا جست‌وجوی اینترنت لازم بود و ابزار متصل نداری، روشن بگو به اطلاعات زنده دسترسی نداری. ادعای جست‌وجوی انجام‌نشده نکن.';
           const chatMessages=[{role:'system',content:instruction},...history.map(x=>({role:x.role==='model'?'assistant':'user',content:x.parts[0].text})),{role:'user',content:message}];
-          const rr=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+routerKey},body:JSON.stringify({model:routerModel,messages:chatMessages,max_tokens:750,temperature:0.4}),signal:AbortSignal.timeout(26000)});
+          const rr=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+(useNetarz?netarzKey:routerKey)},body:JSON.stringify({model:useNetarz?netarzModel:routerModel,messages:chatMessages,max_tokens:750,temperature:0.4}),signal:AbortSignal.timeout(26000)});
           const rd=await rr.json().catch(()=>({}));
           const answer=rd.choices?.[0]?.message?.content;
           if(!rr.ok||typeof answer!=='string'||!answer.trim())throw Error('Router HTTP '+rr.status);
-          return json(res,200,{reply:answer.trim(),provider:'9router',searched:false,sources:[]});
+          return json(res,200,{reply:answer.trim(),provider:useNetarz?'netarz':'9router',searched:false,sources:[]});
         }catch(e){
           console.error('[9Router fallback]',String(e.message||'connection failed').slice(0,100));
-          if(!key)return json(res,502,{error:'ارتباط 9Router برقرار نشد؛ مدل، کلید و آدرس اتصال را در Render بررسی کن.',code:'ROUTER_FAILED'});
+          if(!key)return json(res,502,{error:useNetarz?'ارتباط NetArz برقرار نشد؛ مدل یا کلید را در Render بررسی کن.':'ارتباط 9Router برقرار نشد؛ مدل، کلید و آدرس اتصال را در Render بررسی کن.',code:'ROUTER_FAILED'});
         }
       }
       const requestUrl='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent';
