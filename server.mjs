@@ -57,7 +57,8 @@ const server=http.createServer(async(req,res)=>{
         let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>14000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
         const input=JSON.parse(raw);const spokenText=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,3000);
         if(!spokenText)return json(res,400,{error:'متنی برای خواندن دریافت نشد.'});
-        const upstream=await fetch(netarzBase.replace(/\/$/,'')+'/audio/speech',{method:'POST',headers:{authorization:'Bearer '+netarzKey,'content-type':'application/json'},body:JSON.stringify({model:process.env.NETARZ_TTS_MODEL||'gpt-4o-mini-tts',voice:'nova',input:spokenText,response_format:'mp3',instructions:'با لهجه طبیعی فارسی ایران، گرم و واضح صحبت کن.'}),signal:AbortSignal.timeout(45000)});
+        const naturalText=spokenText.replace(/\n+/g,'، ').replace(/\s{2,}/g,' ').replace(/[•*_#`]/g,'').trim();
+        const upstream=await fetch(netarzBase.replace(/\/$/,'')+'/audio/speech',{method:'POST',headers:{authorization:'Bearer '+netarzKey,'content-type':'application/json'},body:JSON.stringify({model:process.env.NETARZ_TTS_MODEL||'gemini-3.8-flash-lite-tts',voice:'Kore',input:naturalText,response_format:'mp3',speed:0.95,instructions:'فارسی ایران را کاملاً طبیعی و روان صحبت کن؛ لحن گرم و محترمانه باشد، بین جمله‌ها مکث کوتاه داشته باش، کلمات را شمرده اما نه رباتیک ادا کن و هیچ مقدمه یا توضیح اضافه‌ای نگو.'}),signal:AbortSignal.timeout(45000)});
         const audio=Buffer.from(await upstream.arrayBuffer());
         if(!upstream.ok)return json(res,502,{error:'تولید صدای فارسی با NetArz ناموفق بود.',code:'TTS_NETARZ_'+upstream.status});
         res.writeHead(200,{'content-type':upstream.headers.get('content-type')||'audio/mpeg','content-length':audio.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(audio);return;
