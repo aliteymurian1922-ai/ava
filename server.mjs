@@ -52,7 +52,7 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/api/tts'&&req.method==='POST'){
-    if(netzarKey){
+    if(netarzKey){
       try{
         let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>14000)return json(res,413,{error:'متن بیش از حد طولانی است.'})}
         const input=JSON.parse(raw);const spokenText=String(input.text||'').replace(/[\\*#_`]/g,'').trim().slice(0,3000);
